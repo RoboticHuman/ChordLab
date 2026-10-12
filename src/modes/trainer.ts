@@ -1,34 +1,23 @@
 import { isTyping } from '../input/computerKeys';
 import { type Settings, type TrainerSettings, getConstraint, getKey } from '../state';
-import {
-  type Chord,
-  type ChordGroup,
-  INVERSION_NAMES,
-  QUALITIES,
-  bestRootSpelling,
-  chordPcs,
-  chordSymbol,
-  chordTones,
-  identifyChord,
-  perfectFifthIndex,
-} from '../theory/chords';
-import { disallowedNotes } from '../theory/constraint';
+import { type Chord, type ChordGroup, INVERSION_NAMES, QUALITIES, bestRootSpelling, chordSymbol, chordTones } from '../theory/chords';
 import { keyName, romanNumeral, scalePcSet, spellInKey } from '../theory/keys';
-import {
-  type PitchClass,
-  mod12,
-  noteName,
-  pcOf,
-  pcSet,
-  pcSetHas,
-  pcSetIsSubset,
-  pcSetSize,
-  pcSetToArray,
-} from '../theory/notes';
-import { smoothestVoicing, voiceLeading, voicings } from '../theory/voicing';
+import { mod12, noteName, pcOf, pcSet, pcSetIsSubset } from '../theory/notes';
+import { type Target, checkTarget, fullTarget, requiredPcs } from '../theory/target';
+import { voiceLeading, voicings } from '../theory/voicing';
 import { h, render } from '../ui/dom';
-import type { KeyMark } from '../ui/keyboard';
-import { type AppContext, type Mode, chordLabels, demoRange, playableRange, spellMatch } from './mode';
+import { sheetMusic } from '../ui/sheet';
+import {
+  type AppContext,
+  type Mode,
+  demoRange,
+  describeCheck,
+  paintKeys,
+  playAndShow,
+  playableRange,
+  sheetChord,
+  suggestVoicing,
+} from './mode';
 
 interface Item {
   /** Stable id for stats: root pitch class, quality, inversion. */
@@ -36,6 +25,7 @@ interface Item {
   chord: Chord;
   /** Inversion to play, or null when any voicing counts. */
   inversion: number | null;
+  target: Target;
 }
 
 interface ItemStats {
@@ -53,14 +43,6 @@ const GROUPS: { group: ChordGroup; title: string }[] = [
   { group: 'sixth', title: 'Sixths' },
   { group: 'ninth', title: 'Ninths' },
 ];
-
-/** Pitch classes that must be played: every chord tone, minus the 5th when allowed and not in the bass. */
-function requiredPcs(chord: Chord, inversion: number | null, allowNo5: boolean): PitchClass[] {
-  const pcs = chordPcs(chord);
-  const fifth = perfectFifthIndex(chord.quality);
-  if (!allowNo5 || fifth < 0 || pcs.length < 4 || inversion === fifth) return pcs;
-  return pcs.filter((_, i) => i !== fifth);
-}
 
 /** Every chord the current settings can ask for that is actually playable under the constraints. */
 function buildPool(s: Settings): Item[] {
@@ -83,11 +65,12 @@ function buildPool(s: Settings): Item[] {
             ? [0]
             : quality.tones.flatMap((tone, i) => (tone.degree <= 7 ? [i] : [])); // no 9th in the bass
       for (const inversion of inversions) {
-        const need = requiredPcs(chord, inversion, t.allowNo5);
+        const target = fullTarget(chord, inversion, t.allowNo5);
+        const need = requiredPcs(target);
         if (!pcSetIsSubset(pcSet(need), allowed)) continue;
         const bassPc = inversion === null ? undefined : pcs[inversion];
         if (!voicings(need, range.low, range.high, { bassPc }).length) continue;
-        items.push({ id: `${pc}:${quality.id}:${inversion ?? '*'}`, chord, inversion });
+        items.push({ id: `${pc}:${quality.id}:${inversion ?? '*'}`, chord, inversion, target });
       }
     }
   }
@@ -117,6 +100,7 @@ export class TrainerMode implements Mode {
   private revealed: number[] = [];
   private lastAnswer: number[] = [];
   private releaseTimer = 0;
+  private badTimer = 0;
   private session = { correct: 0, misses: 0, streak: 0, best: 0, totalMs: 0 };
   private stats = loadStats();
 
@@ -126,6 +110,9 @@ export class TrainerMode implements Mode {
   private feedbackEl = h('div', { class: 'feedback' });
   private statsEl = h('div', { class: 'stats' });
   private optionsEl = h('div', { class: 'options' });
+  private sheetCard = h('div', { class: 'prompt-sheet' });
+  /** The voicing shown on the sheet: from Show me, or your answer once it's right. */
+  private shown: number[] = [];
 
   constructor(private app: AppContext) {}
 
@@ -134,7 +121,16 @@ export class TrainerMode implements Mode {
       root,
       h(
         'div',
-        { class: 'card chord-card' },
+        { class: 'mode-grid' },
+        h(
+          'div',
+          { class: 'col' },
+      h(
+        'div',
+        { class: 'card chord-card prompt-card' },
+        h(
+          'div',
+          { class: 'prompt-main' },
         h('div', { class: 'prompt-label' }, 'Play'),
         this.symbolEl,
         this.descEl,
@@ -147,9 +143,17 @@ export class TrainerMode implements Mode {
           h('button', { onclick: () => this.skip() }, 'Skip'),
         ),
         this.feedbackEl,
+        ),
+        this.sheetCard,
       ),
       h('div', { class: 'card' }, this.statsEl),
-      h('details', { class: 'card', open: true }, h('summary', {}, 'Exercise options'), this.optionsEl),
+        ),
+        h(
+          'div',
+          { class: 'col' },
+          h('details', { class: 'card', open: true }, h('summary', {}, 'Exercise options'), this.optionsEl),
+        ),
+      ),
     );
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.repeat || isTyping(e)) return;
@@ -174,6 +178,7 @@ export class TrainerMode implements Mode {
     this.cleanup.forEach((fn) => fn());
     this.cleanup = [];
     clearTimeout(this.releaseTimer);
+    clearTimeout(this.badTimer);
     this.app.keyboard.setMarks(new Map());
     this.app.keyboard.setLabels(new Map());
   }
@@ -209,6 +214,7 @@ export class TrainerMode implements Mode {
     this.attempted = false;
     this.missed = false;
     this.revealed = [];
+    this.shown = [];
     this.item = this.pick();
     this.shownAt = performance.now();
     this.renderPrompt();
@@ -239,49 +245,31 @@ export class TrainerMode implements Mode {
 
   private evaluate(held: number[]): void {
     const item = this.item;
-    const keyboard = this.app.keyboard;
+    clearTimeout(this.badTimer);
     if (!item) return;
     if (!held.length) {
       if (this.solved) return this.next();
       if (this.attempted && !this.missed) this.recordMiss();
       this.attempted = false;
-      keyboard.setMarks(this.revealMarks());
-      keyboard.setLabels(new Map());
+      this.paint(held, null);
       return;
     }
-    if (this.solved) return;
+    const key = getKey(this.settings);
+    if (this.solved) {
+      // A late note of the same chord (or one let go early): remember the fullest voicing for voice leading.
+      if (checkTarget(held, item.target, getConstraint(this.settings)).correct) this.lastAnswer = held;
+      return;
+    }
 
-    const s = this.settings;
-    const key = getKey(s);
-    const pcs = chordPcs(item.chord);
-    const tones = chordTones(item.chord);
-    const full = pcSet(pcs);
-    const need = requiredPcs(item.chord, item.inversion, s.trainer.allowNo5);
-    const heldPcs = pcSet(held);
-    const outside = new Set(disallowedNotes(held, getConstraint(s)));
-    const missing = need.filter((pc) => !pcSetHas(heldPcs, pc));
-    const extra = pcSetToArray(heldPcs).filter((pc) => !pcSetHas(full, pc));
-    const bassWrong = item.inversion !== null && mod12(held[0]) !== pcs[item.inversion];
+    const check = checkTarget(held, item.target, getConstraint(this.settings));
+    this.paint(held, check.verdict);
 
-    const marks = this.revealMarks();
-    for (const n of held) marks.set(n, pcSetHas(full, n) && !outside.has(n) ? 'ok' : 'bad');
-    if (bassWrong) marks.set(held[0], 'bad');
-    keyboard.setMarks(marks);
-    keyboard.setLabels(chordLabels(held, item.chord, key));
-
-    if (!missing.length && !extra.length && !bassWrong && !outside.size) return this.succeed(held);
-
-    if (pcSetSize(heldPcs) >= need.length) this.attempted = true;
-    if (!this.attempted) return;
-    const toneName = (pc: number) => noteName(tones[pcs.indexOf(pc)]);
-    const problems: string[] = [];
-    if (missing.length) problems.push(`missing ${missing.map(toneName).join(', ')}`);
-    if (extra.length) problems.push(`${extra.map((pc) => noteName(spellInKey(pc, key))).join(', ')} not in the chord`);
-    if (bassWrong) problems.push(`the bass should be ${noteName(tones[item.inversion!])}`);
-    if (outside.size) problems.push('some notes are outside the allowed notes');
-    const [played] = identifyChord(held);
-    const playedName = played ? `That's ${chordSymbol(spellMatch(played, key), played.inversion, played.no5)}: ` : '';
-    this.setFeedback('bad', `${playedName}${problems.join('; ')}.`);
+    if (check.correct) return this.succeed(held);
+    if (check.complete) this.attempted = true;
+    if (check.complete) {
+      const text = describeCheck(check, item.target, held, key, getConstraint(this.settings));
+      this.badTimer = window.setTimeout(() => this.setFeedback('bad', text), 250);
+    } else if (this.feedbackEl.classList.contains('bad')) this.setFeedback('', '');
   }
 
   private succeed(held: number[]): void {
@@ -303,14 +291,15 @@ export class TrainerMode implements Mode {
     let motion = '';
     if (this.lastAnswer.length) {
       const moved = voiceLeading(this.lastAnswer, held).distance;
-      const range = playableRange(this.settings);
-      const bassPc = item.inversion === null ? undefined : chordPcs(item.chord)[item.inversion];
-      const smoothest = smoothestVoicing(pcSetToArray(pcSet(held)), this.lastAnswer, range.low, range.high, { bassPc });
-      const best = smoothest ? voiceLeading(this.lastAnswer, smoothest).distance : moved;
+      const s = this.settings;
+      const smoothest = suggestVoicing(item.target, this.lastAnswer, playableRange(s), s.allowed);
+      const best = smoothest ? Math.min(moved, voiceLeading(this.lastAnswer, smoothest).distance) : moved;
       motion = ` · moved ${moved} semitone${moved === 1 ? '' : 's'} from the last chord`;
       motion += best < moved ? ` (smoothest possible: ${best})` : ' (smoothest possible!)';
     }
     this.lastAnswer = held;
+    this.shown = held;
+    this.renderSheet();
     const time = `${(ms / 1000).toFixed(1)} s`;
     this.setFeedback('ok', `✓ ${this.missed ? 'Got it' : time}${motion}. Release to continue.`);
     this.renderStats();
@@ -345,19 +334,16 @@ export class TrainerMode implements Mode {
     if (!item) return null;
     const s = this.settings;
     const range = demoRange(s);
-    const pcs = chordPcs(item.chord);
-    const bassPc = item.inversion === null ? undefined : pcs[item.inversion];
-    const full = pcSetIsSubset(pcSet(pcs), s.allowed) ? pcs : requiredPcs(item.chord, item.inversion, true);
-    const prev = this.lastAnswer;
     return (
-      smoothestVoicing(full, prev, range.low, range.high, { bassPc }) ??
-      smoothestVoicing(requiredPcs(item.chord, item.inversion, true), prev, range.low, range.high, { bassPc })
+      suggestVoicing(item.target, this.lastAnswer, range, s.allowed) ??
+      // Nothing fits with the 5th (tight window or the 5th not allowed): show it without.
+      suggestVoicing(fullTarget(item.chord, item.inversion, true), this.lastAnswer, range, s.allowed)
     );
   }
 
   private hear(): void {
     const notes = this.demoVoicing();
-    if (notes) this.app.synth.playChord(notes);
+    if (notes && this.item) playAndShow(this.app, notes, this.item.chord);
   }
 
   private reveal(): void {
@@ -365,24 +351,39 @@ export class TrainerMode implements Mode {
     const notes = this.demoVoicing();
     if (!notes) return;
     this.revealed = notes;
+    this.shown = notes;
+    this.renderSheet();
     if (!this.missed) this.recordMiss();
-    this.app.synth.playChord(notes);
+    playAndShow(this.app, notes, this.item.chord);
     this.evaluate(this.app.input.held);
     if (!this.app.input.held.length) this.setFeedback('', 'Play the highlighted keys (or any other voicing of this chord).');
   }
 
-  private revealMarks(): Map<number, KeyMark> {
-    return new Map(this.revealed.map((n) => [n, 'target']));
+  private paint(held: readonly number[], verdict: Map<number, boolean> | null): void {
+    const chord = this.item?.chord ?? null;
+    paintKeys(this.app.keyboard, getKey(this.settings), { notes: held, verdict, chord }, { notes: this.revealed, chord });
   }
 
   // --- Rendering ---
 
   private setFeedback(kind: '' | 'ok' | 'bad', text: string): void {
+    clearTimeout(this.badTimer);
     this.feedbackEl.className = `feedback ${kind}`;
     this.feedbackEl.textContent = text;
   }
 
+  /** The chord on the staff: just its symbol until you've played it (or asked to be shown). */
+  private renderSheet(): void {
+    const s = this.settings;
+    this.sheetCard.style.display = s.showStaff ? '' : 'none';
+    const item = this.item;
+    if (!s.showStaff || !item) return;
+    const label = chordSymbol(item.chord, item.inversion ?? 0);
+    render(this.sheetCard, sheetMusic([sheetChord(this.shown, item.chord, getKey(s), label)], s.keySig).el);
+  }
+
   private renderPrompt(): void {
+    this.renderSheet();
     const item = this.item;
     if (!item) {
       this.symbolEl.textContent = '—';

@@ -27,6 +27,7 @@ export async function connectMidi(input: NoteInput, onStatus: (status: MidiStatu
     const [, note, velocity] = data;
     if (command === 0x90 && velocity > 0) input.press(note, 'midi', velocity / 127);
     else if (command === 0x80 || command === 0x90) input.release(note, 'midi');
+    else if (command === 0xb0 && note === 64) input.setPedal(velocity >= 64); // CC64: sustain pedal
   };
 
   const refresh = () => {
@@ -37,7 +38,10 @@ export async function connectMidi(input: NoteInput, onStatus: (status: MidiStatu
 
   access.onstatechange = (e) => {
     // A device unplugged mid-chord would otherwise leave its notes stuck on.
-    if (e.port?.type === 'input' && e.port.state === 'disconnected') input.releaseAll('midi');
+    if (e.port?.type === 'input' && e.port.state === 'disconnected') {
+      input.setPedal(false);
+      input.releaseAll('midi');
+    }
     refresh();
   };
   refresh();

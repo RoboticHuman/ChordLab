@@ -21,7 +21,7 @@ function keyOptions(): HTMLOptionElement[] {
 }
 
 /** The sidebar with settings shared by every mode: key, allowed notes, key window, keyboard. */
-export function settingsPanel(store: Store<Settings>): HTMLElement {
+export function settingsPanel(store: Store<Settings>, keyboardHint?: Node): HTMLElement {
   const set = (patch: Partial<Settings>) => store.update(patch);
 
   const keySelect = h(
@@ -94,14 +94,16 @@ export function settingsPanel(store: Store<Settings>): HTMLElement {
     onchange: (e: Event) => set({ windowOn: (e.target as HTMLInputElement).checked }),
   });
   const windowLowLabel = h('span', { class: 'window-low' });
-  const shiftWindow = (by: number) => set({ windowLow: Math.max(21, Math.min(108, store.value.windowLow + by)) });
+  // Adjusting the window switches it on, rather than the controls silently doing nothing while it's off.
+  const shiftWindow = (by: number) =>
+    set({ windowOn: true, windowLow: Math.max(21, Math.min(108, store.value.windowLow + by)) });
   const windowSize = h('input', {
     type: 'number',
     min: 3,
     max: 88,
     onchange: (e: Event) => {
       const n = Math.round(Number((e.target as HTMLInputElement).value));
-      if (n >= 3 && n <= 88) set({ windowSize: n });
+      if (n >= 3 && n <= 88) set({ windowOn: true, windowSize: n });
     },
   });
   const windowRangeLabel = h('div', { class: 'muted' });
@@ -118,6 +120,14 @@ export function settingsPanel(store: Store<Settings>): HTMLElement {
   const soundToggle = h('input', {
     type: 'checkbox',
     onchange: (e: Event) => set({ sound: (e.target as HTMLInputElement).checked }),
+  });
+  const staffToggle = h('input', {
+    type: 'checkbox',
+    onchange: (e: Event) => set({ showStaff: (e.target as HTMLInputElement).checked }),
+  });
+  const pedalToggle = h('input', {
+    type: 'checkbox',
+    onchange: (e: Event) => set({ pedalHolds: (e.target as HTMLInputElement).checked }),
   });
 
   const windowControls = h(
@@ -167,6 +177,10 @@ export function settingsPanel(store: Store<Settings>): HTMLElement {
       rangeSelect,
       h('label', { class: 'check' }, latchToggle, 'Mouse clicks latch notes (Esc clears)'),
       h('label', { class: 'check' }, soundToggle, 'Sound'),
+      h('label', { class: 'check' }, staffToggle, 'Show sheet music'),
+      h('label', { class: 'check' }, pedalToggle, 'Sustain pedal also holds notes for chord detection'),
+      h('p', { class: 'muted' }, 'The pedal always sustains the sound; with this on, pedalled notes also count as played.'),
+      keyboardHint ? h('p', { class: 'muted' }, keyboardHint) : null,
     ),
   );
 
@@ -177,7 +191,7 @@ export function settingsPanel(store: Store<Settings>): HTMLElement {
     tonicSelect.disabled = s.allowedPreset === 'all' || s.allowedPreset === 'custom';
     pcButtons.forEach((b, pc) => b.classList.toggle('on', pcSetHas(s.allowed, pc)));
     windowToggle.checked = s.windowOn;
-    windowControls.classList.toggle('disabled', !s.windowOn);
+    windowControls.classList.toggle('inactive', !s.windowOn);
     windowLowLabel.textContent = `from ${midiName(s.windowLow)}`;
     if (document.activeElement !== windowSize) windowSize.value = String(s.windowSize);
     windowRangeLabel.textContent = s.windowOn
@@ -186,6 +200,8 @@ export function settingsPanel(store: Store<Settings>): HTMLElement {
     rangeSelect.value = s.rangeId;
     latchToggle.checked = s.latch;
     soundToggle.checked = s.sound;
+    staffToggle.checked = s.showStaff;
+    pedalToggle.checked = s.pedalHolds;
   };
   store.subscribe(sync);
   sync(store.value);

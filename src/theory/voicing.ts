@@ -126,3 +126,56 @@ export function smoothestVoicing(
   }
   return best;
 }
+
+/** The option that moves least from `prev` (ties go to the smaller span). */
+export function closestVoicing(options: readonly number[][], prev: readonly number[]): number[] | null {
+  let best: number[] | null = null;
+  let bestScore = Infinity;
+  for (const v of options) {
+    const score = voiceLeading(prev, v).distance * 100 + (v[v.length - 1] - v[0]);
+    if (score < bestScore) {
+      best = v;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * Picks one voicing per chord so the whole progression moves as little as possible
+ * (dynamic programming over every option). `start` pins the first chord's voicing;
+ * otherwise ties favour a first chord near `center`.
+ */
+export function smoothestPath(
+  options: readonly (readonly number[][])[],
+  opts: { start?: number[]; center?: number } = {},
+): { path: number[][]; distance: number } | null {
+  if (!options.length || options.some((o) => !o.length)) return null;
+  const layers = [opts.start ? [opts.start] : [...options[0]], ...options.slice(1).map((o) => [...o])];
+  const mean = (v: number[]) => v.reduce((s, n) => s + n, 0) / v.length;
+  let cost = layers[0].map((v) => (opts.center === undefined ? 0 : Math.abs(mean(v) - opts.center) * 0.01));
+  const back: number[][] = [];
+  for (let i = 1; i < layers.length; i++) {
+    const next = layers[i].map(() => Infinity);
+    const from = layers[i].map(() => 0);
+    layers[i].forEach((v, j) => {
+      layers[i - 1].forEach((u, k) => {
+        const c = cost[k] + voiceLeading(u, v).distance;
+        if (c < next[j]) {
+          next[j] = c;
+          from[j] = k;
+        }
+      });
+    });
+    back.push(from);
+    cost = next;
+  }
+  let j = cost.indexOf(Math.min(...cost));
+  const path = [layers[layers.length - 1][j]];
+  for (let i = layers.length - 1; i > 0; i--) {
+    j = back[i - 1][j];
+    path.unshift(layers[i - 1][j]);
+  }
+  const distance = path.slice(1).reduce((sum, v, i) => sum + voiceLeading(path[i], v).distance, 0);
+  return { path, distance };
+}

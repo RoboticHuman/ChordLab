@@ -117,3 +117,9 @@ export const pcSetSize = (set: PcSet): number => pcSetToArray(set).length;
 
 /** True when every pitch class in `inner` is also in `outer`. */
 export const pcSetIsSubset = (inner: PcSet, outer: PcSet): boolean => (inner & ~outer) === 0;
+
+/** Moves every pitch class in the set up by `semitones`. */
+export function pcSetTranspose(set: PcSet, semitones: number): PcSet {
+  const n = mod12(semitones);
+  return ((set << n) | (set >>> (12 - n))) & ALL_PCS;
+}

@@ -13,6 +13,9 @@ export class Synth {
   private ctx: AudioContext | null = null;
   private out!: GainNode;
   private held = new Map<number, Voice>();
+  private sustain = false;
+  /** Notes let go while the pedal was down, still ringing. */
+  private sustained = new Set<number>();
 
   /** Creates or resumes the audio context. Browsers only allow this after a click or key press. */
   unlock(): void {
@@ -35,11 +38,25 @@ export class Synth {
 
   noteOn(midi: number, velocity = 0.8): void {
     if (this.muted || !this.ctx) return;
-    this.noteOff(midi);
+    this.stopVoice(midi);
     this.held.set(midi, this.startVoice(midi, velocity, this.ctx.currentTime));
   }
 
   noteOff(midi: number): void {
+    if (this.sustain && this.held.has(midi)) this.sustained.add(midi);
+    else this.stopVoice(midi);
+  }
+
+  /** Sustain pedal: while down, released notes keep sounding. */
+  setSustain(down: boolean): void {
+    this.sustain = down;
+    if (down) return;
+    for (const midi of this.sustained) this.stopVoice(midi);
+    this.sustained.clear();
+  }
+
+  private stopVoice(midi: number): void {
+    this.sustained.delete(midi);
     const voice = this.held.get(midi);
     if (!voice || !this.ctx) return;
     this.held.delete(midi);

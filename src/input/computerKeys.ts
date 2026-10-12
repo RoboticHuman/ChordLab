@@ -11,9 +11,18 @@ export const isTyping = (e: Event): boolean =>
   e.target instanceof HTMLElement &&
   e.target.closest('input:not([type=checkbox]):not([type=radio]), select, textarea') !== null;
 
-/** Plays notes from the computer keyboard. Z / X shift the octave; `onOctave` gets the new lowest note. */
-export function attachComputerKeyboard(input: NoteInput, onOctave: (base: number) => void): void {
-  let base = 60;
+/** The letter printed on each key, in the same order as CODES. */
+export const KEY_LETTERS = ['A', 'W', 'S', 'E', 'D', 'F', 'T', 'G', 'Y', 'H', 'U', 'J', 'K', 'O', 'L', 'P', ';', "'"];
+
+/**
+ * Plays notes from the computer keyboard, starting at `getBase()`. Z / X call `shiftOctave` (the app
+ * moves the on-screen keyboard and the base with it).
+ */
+export function attachComputerKeyboard(
+  input: NoteInput,
+  getBase: () => number,
+  shiftOctave: (by: number) => void,
+): { releaseAll: () => void } {
   const down = new Map<string, number>();
 
   const releaseAll = () => {
@@ -24,15 +33,14 @@ export function attachComputerKeyboard(input: NoteInput, onOctave: (base: number
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTyping(e)) return;
     if (e.code === 'KeyZ' || e.code === 'KeyX') {
-      releaseAll();
-      base = Math.min(96, Math.max(24, base + (e.code === 'KeyZ' ? -12 : 12)));
-      onOctave(base);
+      shiftOctave(e.code === 'KeyZ' ? -1 : 1);
       return;
     }
     const offset = CODES.indexOf(e.code);
     if (offset < 0 || down.has(e.code)) return;
-    down.set(e.code, base + offset);
-    input.press(base + offset, 'keys');
+    const midi = getBase() + offset;
+    down.set(e.code, midi);
+    input.press(midi, 'keys');
   });
 
   window.addEventListener('keyup', (e) => {
@@ -44,5 +52,5 @@ export function attachComputerKeyboard(input: NoteInput, onOctave: (base: number
 
   // Key-ups are lost when the window loses focus, so let go of everything.
   window.addEventListener('blur', releaseAll);
-  onOctave(base);
+  return { releaseAll };
 }

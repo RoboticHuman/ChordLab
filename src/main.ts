@@ -1,12 +1,24 @@
 import './style.css';
 import { Synth } from './audio/synth';
-import { attachComputerKeyboard, isTyping } from './input/computerKeys';
+import { KEY_LETTERS, attachComputerKeyboard, isTyping } from './input/computerKeys';
 import { type MidiStatus, connectMidi } from './input/midi';
 import { NoteInput } from './input/noteInput';
+import { CircleMode } from './modes/circle';
 import { FreePlayMode } from './modes/freePlay';
 import type { AppContext, Mode } from './modes/mode';
 import { TrainerMode } from './modes/trainer';
-import { DEFAULT_SETTINGS, type ModeId, type Settings, Store, getConstraint, getRange } from './state';
+import { VoiceLeadingMode } from './modes/voiceLeading';
+import {
+  DEFAULT_SETTINGS,
+  type ModeId,
+  type Settings,
+  Store,
+  computerKeysBase,
+  getConstraint,
+  getRange,
+  octaveShift,
+  octaveShowing,
+} from './state';
 import { midiName } from './theory/notes';
 import { h } from './ui/dom';
 import { Keyboard } from './ui/keyboard';
@@ -22,6 +34,8 @@ const app: AppContext = { input, keyboard, synth, settings };
 const MODES: { id: ModeId; title: string; create: () => Mode }[] = [
   { id: 'free', title: 'Free play', create: () => new FreePlayMode(app) },
   { id: 'trainer', title: 'Chord trainer', create: () => new TrainerMode(app) },
+  { id: 'circle', title: 'Circle of fifths', create: () => new CircleMode(app) },
+  { id: 'voice', title: 'Voice leading', create: () => new VoiceLeadingMode(app) },
 ];
 
 // --- Layout ---
@@ -29,40 +43,56 @@ const MODES: { id: ModeId; title: string; create: () => Mode }[] = [
 const modeRoot = h('section', { class: 'mode' });
 const tabs = MODES.map((m) => h('button', { class: 'tab', onclick: () => settings.update({ mode: m.id }) }, m.title));
 const midiPill = h('span', { class: 'pill' });
+const pedalPill = h('span', { class: 'pill live', style: 'display:none' }, 'Pedal');
+const settingsToggle = h('button', {
+  class: 'pill',
+  title: 'Show or hide the settings sidebar',
+  onclick: () => settings.update({ settingsOpen: !settings.value.settingsOpen }),
+});
+const keyboardHint = h(
+  'span',
+  {},
+  'The letters on the piano keys are the computer keys that play them. The ◀ ▶ buttons beside the keyboard ',
+  '(or ',
+  h('kbd', {}, 'Z'),
+  ' / ',
+  h('kbd', {}, 'X'),
+  ') move it an octave.',
+);
+/** Shifts the on-screen keyboard (and the computer keys) by octaves. */
+const shiftOctave = (by: number) => {
+  const s = settings.value;
+  settings.update({ octave: octaveShift(s, octaveShift(s) + by) });
+};
+const octaveDown = h('button', { class: 'octave-btn', onclick: () => shiftOctave(-1) }, '◀');
+const octaveUp = h('button', { class: 'octave-btn', onclick: () => shiftOctave(1) }, '▶');
+const mainEl = h('main', {}, modeRoot, settingsPanel(settings, keyboardHint));
 const soundPill = h('button', {
   class: 'pill',
   onclick: () => (synth.running ? settings.update({ sound: !settings.value.sound }) : synth.unlock()),
 });
-const octaveHint = h('span');
 
 document.getElementById('app')!.replaceChildren(
-  h('header', {}, h('h1', {}, 'Chord Lab'), h('nav', {}, tabs), h('div', { class: 'status' }, midiPill, soundPill)),
-  h('main', {}, modeRoot, settingsPanel(settings)),
-  h(
-    'footer',
-    {},
-    keyboard.el,
-    h(
-      'div',
-      { class: 'hint' },
-      'Play a MIDI keyboard, click the keys, or type ',
-      h('kbd', {}, 'A W S E D F T G Y H U J K'),
-      ' (computer keys start at ',
-      octaveHint,
-      '; ',
-      h('kbd', {}, 'Z'),
-      ' / ',
-      h('kbd', {}, 'X'),
-      ' change octave).',
-    ),
-  ),
+  h('header', {}, h('h1', {}, 'Chord Lab'), h('nav', {}, tabs), h('div', { class: 'status' }, pedalPill, midiPill, soundPill, settingsToggle)),
+  mainEl,
+  h('footer', {}, octaveDown, keyboard.el, octaveUp),
 );
 
 // --- Wiring ---
 
-input.noteOn.on((midi, velocity) => synth.noteOn(midi, velocity));
+input.noteOn.on((midi, velocity, source) => {
+  synth.noteOn(midi, velocity);
+  // Follow the MIDI keyboard's octave buttons: bring notes played out of view into view.
+  if (source !== 'midi') return;
+  const octave = octaveShowing(settings.value, midi);
+  if (octave !== octaveShift(settings.value)) settings.update({ octave });
+});
 input.noteOff.on((midi) => synth.noteOff(midi));
 input.changed.on((held) => keyboard.setHeld(held));
+input.pedal.on((down) => {
+  synth.setSustain(down);
+  pedalPill.style.display = down ? '' : 'none';
+});
 
 keyboard.onKeyDown = (midi) => (settings.value.latch ? input.toggle(midi, 'mouse') : input.press(midi, 'mouse'));
 keyboard.onKeyUp = (midi) => {
@@ -83,6 +113,9 @@ function renderSoundPill(): void {
   const s = settings.value;
   soundPill.textContent = !synth.running ? '🔈 Click to enable sound' : s.sound ? '🔊 Sound on' : '🔇 Sound off';
   soundPill.classList.toggle('warn', !synth.running);
+  soundPill.title = synth.running
+    ? 'Click to turn sound on or off'
+    : 'Browsers keep sound off until you click. If it stays off, check the site’s sound/autoplay permission in the address bar.';
 }
 
 function renderMidiPill(status: MidiStatus): void {
@@ -97,11 +130,25 @@ function renderMidiPill(status: MidiStatus): void {
 }
 
 let latched = settings.value.latch;
+let keysBase = computerKeysBase(settings.value);
+const computerKeys = attachComputerKeyboard(input, () => computerKeysBase(settings.value), shiftOctave);
 function applySettings(s: Settings): void {
+  mainEl.classList.toggle('no-settings', !s.settingsOpen);
+  settingsToggle.textContent = s.settingsOpen ? 'Hide settings' : '⚙ Settings';
   const range = getRange(s);
   keyboard.setRange(range.low, range.high);
+  const shift = octaveShift(s);
+  octaveDown.disabled = octaveShift(s, shift - 1) === shift;
+  octaveUp.disabled = octaveShift(s, shift + 1) === shift;
+  octaveDown.title = `Octave down: ${midiName(range.low - 12)}–${midiName(range.high - 12)} (Z)`;
+  octaveUp.title = `Octave up: ${midiName(range.low + 12)}–${midiName(range.high + 12)} (X)`;
+  const base = computerKeysBase(s);
+  if (base !== keysBase) computerKeys.releaseAll();
+  keysBase = base;
+  keyboard.setLetters(new Map(KEY_LETTERS.map((letter, i) => [base + i, letter])));
   keyboard.setConstraint(getConstraint(s));
   synth.muted = !s.sound;
+  input.pedalHolds = s.pedalHolds;
   if (latched && !s.latch) input.releaseAll('mouse');
   latched = s.latch;
   renderSoundPill();
@@ -112,8 +159,7 @@ applySettings(settings.value);
 
 // Browsers keep audio off until the first click or key press.
 const unlock = () => synth.unlock();
-window.addEventListener('pointerdown', unlock);
-window.addEventListener('keydown', unlock);
+for (const type of ['pointerdown', 'click', 'touchend', 'keydown']) window.addEventListener(type, unlock);
 synth.onStateChange = renderSoundPill;
 
 window.addEventListener('keydown', (e) => {
@@ -124,5 +170,4 @@ window.addEventListener('change', (e) => {
   if (e.target instanceof HTMLSelectElement) e.target.blur();
 });
 
-attachComputerKeyboard(input, (base) => (octaveHint.textContent = midiName(base)));
 void connectMidi(input, renderMidiPill);

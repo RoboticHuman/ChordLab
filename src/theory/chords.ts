@@ -5,6 +5,7 @@ import {
   accidentalSymbol,
   mod12,
   noteName,
+  parseNote,
   pcOf,
   pcSet,
   pcSetSize,
@@ -105,7 +106,7 @@ export function chordSymbol(chord: Chord, inversion = 0, no5 = false): string {
 /** Interval label relative to the root: R, ♭3, 3, 5, ♭7, 7, 9… */
 export function toneLabel(interval: Interval): string {
   if (interval.degree === 1) return 'R';
-  const majorSize = [0, 0, 2, 4, 5, 7, 9, 11, 12, 14][interval.degree];
+  const majorSize = [0, 0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21][interval.degree];
   return accidentalSymbol(interval.semitones - majorSize) + interval.degree;
 }
 
@@ -173,4 +174,39 @@ export function identifyChord(notes: readonly number[]): ChordMatch[] {
 export function matchToChord(match: ChordMatch, spellRoot?: (pc: PitchClass) => SpelledNote): Chord {
   const root = spellRoot ? spellRoot(match.rootPc) : bestRootSpelling(match.rootPc, match.quality);
   return { root, quality: match.quality };
+}
+
+// --- Parsing chord symbols ---
+
+/** Common ways of writing each quality, beyond the symbols used for display. */
+const SYMBOL_ALIASES: Record<string, string> = {
+  M: 'maj', maj: 'maj', major: 'maj',
+  min: 'min', mi: 'min', '-': 'min',
+  o: 'dim', dim: 'dim',
+  aug: 'aug', '#5': 'aug', '♯5': 'aug',
+  sus: 'sus4',
+  M7: 'maj7', ma7: 'maj7', Maj7: 'maj7', 'Δ': 'maj7', 'Δ7': 'maj7',
+  dom7: '7',
+  min7: 'm7', mi7: 'm7', '-7': 'm7',
+  m7b5: 'm7b5', 'ø': 'm7b5', 'ø7': 'm7b5', '-7b5': 'm7b5', min7b5: 'm7b5',
+  o7: 'dim7', dim7: 'dim7',
+  mM7: 'mMaj7', mmaj7: 'mMaj7', mMaj7: 'mMaj7', '-Δ7': 'mMaj7', 'm(Δ7)': 'mMaj7',
+  '7sus': '7sus4',
+  '-6': 'm6', min6: 'm6',
+  M9: 'maj9', 'Δ9': 'maj9',
+  '-9': 'm9', min9: 'm9',
+};
+
+/** The quality written by a suffix such as "m7", "-7", "ø7" or "Δ". Undefined if unknown. */
+export function qualityFromSymbol(suffix: string): ChordQuality | undefined {
+  const s = suffix.trim();
+  return QUALITIES.find((q) => q.symbol === s) ?? QUALITIES.find((q) => q.id === SYMBOL_ALIASES[s]);
+}
+
+/** Parses "E♭maj7", "F#m7b5", "Bb7", "C/E" and similar. Throws on anything it does not understand. */
+export function parseChordSymbol(text: string): { chord: Chord; bass: SpelledNote | null } {
+  const m = /^([A-G](?:bb|b|♭|#|♯|x|𝄪|𝄫)?)([^/]*)(?:\/(.+))?$/u.exec(text.trim());
+  const quality = m ? qualityFromSymbol(m[2]) : undefined;
+  if (!m || !quality) throw new Error(`Unknown chord "${text}"`);
+  return { chord: { root: parseNote(m[1]), quality }, bass: m[3] ? parseNote(m[3]) : null };
 }

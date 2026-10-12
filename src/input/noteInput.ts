@@ -1,4 +1,4 @@
-export type NoteSource = 'midi' | 'mouse' | 'keys';
+export type NoteSource = 'midi' | 'mouse' | 'keys' | 'pedal';
 
 type Listener<A extends unknown[]> = (...args: A) => void;
 
@@ -15,11 +15,15 @@ class Emitter<A extends unknown[]> {
 
 /** Merges MIDI, mouse and computer-keyboard input into one set of held notes. */
 export class NoteInput {
-  readonly noteOn = new Emitter<[midi: number, velocity: number]>();
+  readonly noteOn = new Emitter<[midi: number, velocity: number, source: NoteSource]>();
   readonly noteOff = new Emitter<[midi: number]>();
   /** Fires with the sorted held notes whenever they change. */
   readonly changed = new Emitter<[held: number[]]>();
+  readonly pedal = new Emitter<[down: boolean]>();
 
+  /** When true, notes released while the sustain pedal is down stay held until it comes up. */
+  pedalHolds = false;
+  private pedalDown = false;
   private sources = new Map<number, Set<NoteSource>>();
 
   get held(): number[] {
@@ -33,16 +37,28 @@ export class NoteInput {
       return;
     }
     this.sources.set(midi, new Set([source]));
-    this.noteOn.emit(midi, velocity);
+    this.noteOn.emit(midi, velocity, source);
     this.changed.emit(this.held);
   }
 
   release(midi: number, source: NoteSource): void {
     const s = this.sources.get(midi);
+    if (s?.has(source) && this.pedalDown && this.pedalHolds && source !== 'pedal') s.add('pedal');
     if (!s?.delete(source) || s.size) return;
     this.sources.delete(midi);
     this.noteOff.emit(midi);
     this.changed.emit(this.held);
+  }
+
+  get isPedalDown(): boolean {
+    return this.pedalDown;
+  }
+
+  setPedal(down: boolean): void {
+    if (down === this.pedalDown) return;
+    this.pedalDown = down;
+    this.pedal.emit(down);
+    if (!down) this.releaseAll('pedal');
   }
 
   isHeldBy(midi: number, source: NoteSource): boolean {

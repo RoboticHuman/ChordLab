@@ -77,9 +77,8 @@ kbd {
   gap: 8px;
   flex-wrap: wrap;
 }
-.row.disabled {
-  opacity: 0.4;
-  pointer-events: none;
+.row.inactive {
+  opacity: 0.6;
 }
 
 label.check {
@@ -154,15 +153,18 @@ nav {
 
 main {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr 300px;
   min-height: 0;
+}
+main.no-settings {
+  grid-template-columns: 1fr;
+}
+main.no-settings .settings {
+  display: none;
 }
 .mode {
   overflow: auto;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  padding: 14px;
 }
 .settings {
   overflow: auto;
@@ -208,7 +210,7 @@ main {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 16px 20px;
+  padding: 12px 16px;
 }
 .card-header {
   display: flex;
@@ -225,7 +227,7 @@ main {
 
 .chord-card {
   text-align: center;
-  padding: 24px;
+  padding: 14px 16px;
 }
 .prompt-label {
   color: var(--muted);
@@ -234,7 +236,7 @@ main {
   font-size: 12px;
 }
 .chord-symbol {
-  font-size: 64px;
+  font-size: 52px;
   font-weight: 700;
   line-height: 1.15;
 }
@@ -283,8 +285,10 @@ main {
 }
 .warning {
   color: var(--bad);
-  min-height: 1.2em;
   margin-top: 6px;
+}
+.warning:empty {
+  display: none;
 }
 
 /* --- Free play progression --- */
@@ -350,10 +354,10 @@ main {
 
 .buttons {
   justify-content: center;
-  margin-top: 16px;
+  margin-top: 10px;
 }
 .feedback {
-  margin-top: 14px;
+  margin-top: 8px;
   min-height: 1.4em;
 }
 .feedback.ok {
@@ -383,9 +387,12 @@ details summary {
 }
 .options {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 20px;
-  margin-top: 12px;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+  margin-top: 10px;
+}
+.options .option-group:first-child {
+  grid-column: 1 / -1;
 }
 .option-group h4 {
   margin: 0 0 6px;
@@ -399,26 +406,442 @@ details summary {
   gap: 0 14px;
 }
 .quality-row > span {
-  width: 70px;
+  width: 64px;
+}
+.options label.check {
+  margin: 2px 0;
+}
+
+/* --- Progressions (circle + voice leading) --- */
+
+.progression-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.progression-picker select {
+  max-width: 100%;
+}
+input.custom-progression {
+  font: inherit;
+  flex: 1;
+  min-width: 220px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.picker-note.error {
+  color: var(--bad);
+}
+.progression-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.step-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.step-chip b {
+  font-size: 18px;
+}
+.step-chip small {
+  color: var(--accent);
+}
+.step-chip small.moved {
+  color: var(--muted);
+}
+.step-chip.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.step-chip.done {
+  border-color: var(--ok);
+  opacity: 0.75;
+}
+.step-chip.done b::after {
+  content: ' ✓';
+  color: var(--ok);
+  font-size: 14px;
+}
+.progression-row .arrow {
+  color: var(--muted);
+  font-size: 18px;
+}
+.key-title {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+/* --- Circle of fifths --- */
+
+/* Modes lay out in two columns on wide screens, one on narrow. */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.mode-grid.circle-grid {
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+}
+.mode-grid .span-2 {
+  grid-column: 1 / -1;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.options-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.options-bar .progression-picker {
+  margin-bottom: 0;
+}
+.options-bar p.muted {
+  margin: 0;
+}
+.view-tabs {
+  display: flex;
+  gap: 4px;
+}
+.view-card .card-header {
+  margin-bottom: 8px;
+}
+.results {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.swatch.ghost {
+  height: 10px;
+  border: 1px dashed #535b67;
+  background: none;
+}
+.circle {
+  width: 100%;
+  height: auto;
+  display: block;
+  user-select: none;
+}
+.wedge {
+  fill: var(--panel-2);
+  stroke: var(--bg);
+  stroke-width: 2;
+  cursor: pointer;
+}
+.wedge:hover {
+  fill: #2c323b;
+}
+.wedge.in-key {
+  fill: #253750;
+}
+.wedge.done {
+  fill: #1e3a2c;
+}
+.wedge.in-key.done {
+  fill: #27504a;
+}
+.wedge.current {
+  fill: var(--accent);
+}
+.wedge-label {
+  fill: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.wedge-label.minor {
+  font-size: 12px;
+  font-weight: 500;
+}
+.wedge-numeral {
+  fill: #9cc4ff;
+  font-size: 10px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.circle-center-name {
+  fill: var(--text);
+  font-size: 30px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+.circle-center-sig {
+  fill: var(--muted);
+  font-size: 13px;
+  text-anchor: middle;
+}
+.path-line {
+  stroke: var(--target);
+  stroke-width: 2.5;
+  pointer-events: none;
+}
+.path-line.done {
+  stroke: var(--ok);
+}
+.path-line.todo {
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
+}
+.arrow-head {
+  fill: var(--target);
+}
+.path-dot {
+  fill: var(--bg);
+  stroke: var(--target);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.path-dot.done {
+  stroke: var(--ok);
+  fill: #1e3a2c;
+}
+.path-dot.current {
+  fill: var(--target);
+}
+.path-num {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.results-table th,
+.results-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.results-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+.results-table td.best {
+  color: var(--ok);
+}
+.results-table td.over {
+  color: var(--target);
+}
+.results-table tr.total td {
+  font-weight: 700;
+  border-bottom: none;
+}
+
+/* --- Voice graph --- */
+
+.graph-host {
+  overflow-x: auto;
+}
+.voice-graph {
+  display: block;
+}
+.grid-c {
+  stroke: var(--border);
+  stroke-dasharray: 2 4;
+}
+.grid-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.graph-label {
+  fill: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+.graph-sub {
+  fill: var(--muted);
+  font-size: 12px;
+  text-anchor: middle;
+}
+.graph-col.current .graph-label {
+  fill: var(--accent);
+}
+.graph-note {
+  fill: #3a404a;
+  stroke: #535b67;
+}
+.graph-note.guide {
+  fill: #2d4a6e;
+  stroke: var(--accent);
+}
+.graph-col.ghost .graph-note {
+  fill: none;
+  stroke-dasharray: 3 2;
+}
+.graph-note-text {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.graph-note-role {
+  fill: #b5bcc6;
+  font-size: 10px;
+  text-anchor: end;
+}
+.voice-line {
+  stroke-width: 1.5;
+}
+.voice-line.guide {
+  stroke-width: 3;
+}
+.voice-line.ghost {
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+.voice-line.held,
+.swatch.held {
+  stroke: var(--ok);
+  background: var(--ok);
+}
+.voice-line.step,
+.swatch.step {
+  stroke: var(--accent);
+  background: var(--accent);
+}
+.voice-line.leap,
+.swatch.leap {
+  stroke: var(--target);
+  background: var(--target);
+}
+.swatch.guide {
+  background: #2d4a6e;
+  border: 1px solid var(--accent);
+}
+.motion-label {
+  font-size: 11px;
+  text-anchor: middle;
+  fill: var(--muted);
+}
+.motion-label.leap {
+  fill: var(--target);
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  margin-left: 6px;
+}
+.swatch.guide {
+  height: 10px;
+}
+.score {
+  margin-top: 12px;
+}
+
+/* --- Sheet music (drawn by VexFlow on a paper-like background) --- */
+
+.sheet {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px 12px 4px;
+  border-radius: 8px;
+  background: #fbfaf6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.sheet svg {
+  display: block;
+}
+.sheet .bar-highlight {
+  fill: transparent;
+  stroke: none;
+  transition: fill 120ms;
+}
+.sheet .bar-highlight.current {
+  fill: rgba(31, 95, 191, 0.1);
+}
+.sheet .bar-highlight.playing {
+  fill: rgba(138, 98, 232, 0.25);
+}
+.sheet-card {
+  display: flex;
+  justify-content: center;
+}
+.prompt-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.prompt-main {
+  flex: 1;
+  min-width: 220px;
 }
 
 /* --- Keyboard --- */
 
 footer {
-  padding: 10px 20px 12px;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
+.octave-btn {
+  flex: none;
+  width: 34px;
+  padding: 0;
+  font-size: 16px;
+  color: var(--muted);
+}
+.octave-btn:hover:not(:disabled) {
+  color: var(--text);
+}
+.octave-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
 .keyboard {
   display: block;
+  flex: 1;
+  min-width: 0;
   width: 100%;
   height: auto;
-  max-height: 28vh;
+  max-height: 24vh;
   touch-action: none;
   user-select: none;
 }
 .key {
   cursor: pointer;
+  transition: fill 90ms;
 }
 .key.white {
   fill: #f3f2ee;
@@ -465,6 +888,13 @@ footer {
 .key.mark-bad.black {
   fill: var(--bad);
 }
+/* Keys the app is playing right now (Hear…, Show me, Play back): drawn on top of everything else. */
+.key.playing.white {
+  fill: #c4a8ff;
+}
+.key.playing.black {
+  fill: #8a62e8;
+}
 .window-bar {
   fill: var(--accent);
 }
@@ -473,6 +903,17 @@ footer {
   fill: #8a8d93;
   text-anchor: middle;
   pointer-events: none;
+}
+.key-letters text {
+  font-size: 8px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.key-letters text.on-white {
+  fill: #9a9ca2;
+}
+.key-letters text.on-black {
+  fill: #8d9098;
 }
 .key-labels text {
   font-size: 10px;
@@ -491,11 +932,12 @@ footer {
   font-size: 8px;
   font-weight: 400;
 }
-.hint {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: center;
+
+@media (max-width: 1150px) {
+  .mode-grid,
+  .mode-grid.circle-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 900px) {

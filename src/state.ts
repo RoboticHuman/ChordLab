@@ -1,8 +1,10 @@
 import { type NoteConstraint, presetPcSet } from './theory/constraint';
 import { type Key, type KeyMode, keyFromSignature } from './theory/keys';
-import { ALL_PCS, type PcSet, type PitchClass } from './theory/notes';
+import { ALL_PCS, type PcSet, type PitchClass, mod12, pcOf, pcSetTranspose } from './theory/notes';
+import { PROGRESSIONS, type Step, parseProgression } from './theory/progressions';
+import type { VoicingStyle } from './theory/target';
 
-export type ModeId = 'free' | 'trainer';
+export type ModeId = 'free' | 'trainer' | 'circle' | 'voice';
 
 export interface TrainerSettings {
   qualities: string[];
@@ -30,7 +32,33 @@ export interface Settings {
   /** Mouse clicks toggle notes on and off, so chords can be built one click at a time. */
   latch: boolean;
   sound: boolean;
+  /** Show held or played chords as sheet music. */
+  showStaff: boolean;
+  /** Notes held by the sustain pedal count as held for chord detection, not just for sound. */
+  pedalHolds: boolean;
   trainer: TrainerSettings;
+  /** A PROGRESSIONS id, or 'custom'. Shared by the circle and voice-leading modes. */
+  progressionId: string;
+  /** The custom progression, as Roman numerals, and the mode it is written for. */
+  customProgression: string;
+  customMode: KeyMode;
+  /** Circle mode: 'fourths' goes C → F → B♭ (anticlockwise), 'fifths' goes C → G → D. */
+  circleDirection: 'fourths' | 'fifths';
+  /** Circle mode: move the allowed notes along with the key. */
+  circleMovesAllowed: boolean;
+  voiceStyle: VoicingStyle;
+  /** Voice-leading mode shows the sheet music or the voice-lines graph. */
+  voiceView: 'sheet' | 'lines';
+  /** Circle and voice-leading modes: mark the next chord's suggested voicing on the keyboard. */
+  lightNext: boolean;
+  /** The settings sidebar is open. */
+  settingsOpen: boolean;
+  /** Circle and voice-leading modes: how the first chord starts (an index into its start options), -1 for any. */
+  startFrom: number;
+  /** Move to the next start option with each new key. */
+  rotateStart: boolean;
+  /** On-screen keyboard (and computer keys) shifted this many octaves from the keyboard size's default. */
+  octave: number;
 }
 
 export const RANGES = [
@@ -54,12 +82,26 @@ export const DEFAULT_SETTINGS: Settings = {
   rangeId: '49',
   latch: true,
   sound: true,
+  showStaff: true,
+  pedalHolds: false,
   trainer: {
     qualities: ['maj', 'min'],
     roots: 'all',
     inversions: 'any',
     allowNo5: false,
   },
+  progressionId: 'ii-V-I',
+  customProgression: 'Imaj7 vi7 ii7 V7',
+  customMode: 'major',
+  circleDirection: 'fourths',
+  circleMovesAllowed: true,
+  voiceStyle: 'full',
+  voiceView: 'sheet',
+  lightNext: false,
+  settingsOpen: true,
+  startFrom: -1,
+  rotateStart: false,
+  octave: 0,
 };
 
 export const getKey = (s: Settings): Key => keyFromSignature(s.keySig, s.keyMode);
@@ -71,8 +113,77 @@ export function getConstraint(s: Settings): NoteConstraint {
   };
 }
 
+const keyboardSize = (s: Settings) => RANGES.find((r) => r.id === s.rangeId) ?? RANGES[2];
+
+/** The octave shift actually in effect: the setting, kept within the 88 piano keys. */
+export function octaveShift(s: Settings, octave = s.octave): number {
+  const size = keyboardSize(s);
+  return Math.max(Math.ceil((21 - size.low) / 12), Math.min(Math.floor((108 - size.high) / 12), octave));
+}
+
+/** The keys shown on screen: the keyboard size, shifted by octaves. */
 export function getRange(s: Settings): { low: number; high: number } {
-  return RANGES.find((r) => r.id === s.rangeId) ?? RANGES[2];
+  const size = keyboardSize(s);
+  const shift = octaveShift(s) * 12;
+  return { low: size.low + shift, high: size.high + shift };
+}
+
+/** The octave shift that keeps a note in view, or the current one if it already is. */
+export function octaveShowing(s: Settings, midi: number): number {
+  const { low, high } = getRange(s);
+  const shift = octaveShift(s);
+  if (midi < low) return octaveShift(s, shift - Math.ceil((low - midi) / 12));
+  if (midi > high) return octaveShift(s, shift + Math.ceil((midi - high) / 12));
+  return shift;
+}
+
+/** Where the computer keys start: C4 moved by the octave shift. */
+export const computerKeysBase = (s: Settings): number => 60 + 12 * octaveShift(s);
+
+/** Wraps a key signature into -6..6 (going past 6♯ comes back round as flats). */
+export function wrapSignature(sig: number): number {
+  let s = sig;
+  while (s > 6) s -= 12;
+  while (s < -6) s += 12;
+  return s;
+}
+
+/** The signature of the same tonic in another mode: C major (0) ↔ C minor (-3). */
+export function parallelSignature(sig: number, from: KeyMode, to: KeyMode): number {
+  return from === to ? sig : wrapSignature(sig + (to === 'minor' ? -3 : 3));
+}
+
+/** A settings patch that changes key, optionally transposing the allowed notes by the same interval. */
+export function keyChange(s: Settings, keySig: number, keyMode: KeyMode, moveAllowed: boolean): Partial<Settings> {
+  const patch: Partial<Settings> = { keySig, keyMode };
+  if (moveAllowed && s.allowedPreset !== 'all') {
+    const shift = pcOf(keyFromSignature(keySig, keyMode).tonic) - pcOf(getKey(s).tonic);
+    patch.allowed = pcSetTranspose(s.allowed, shift);
+    patch.allowedTonic = mod12(s.allowedTonic + shift);
+  }
+  return patch;
+}
+
+export interface ResolvedProgression {
+  name: string;
+  /** The mode the progression is written for. */
+  mode: KeyMode;
+  text: string;
+  steps: Step[];
+  error: string | null;
+}
+
+/** The selected progression, parsed for the current key. */
+export function getProgression(s: Settings): ResolvedProgression {
+  const def = PROGRESSIONS.find((p) => p.id === s.progressionId);
+  const name = def?.name ?? 'Custom';
+  const mode = def?.mode ?? s.customMode;
+  const text = def?.text ?? s.customProgression;
+  try {
+    return { name, mode, text, steps: parseProgression(text, getKey(s)), error: null };
+  } catch (e) {
+    return { name, mode, text, steps: [], error: (e as Error).message };
+  }
 }
 
 /** Recomputes the allowed notes after the preset or its tonic changes. */

@@ -21,9 +21,15 @@ export class Keyboard {
   private high = 0;
   private keys = new Map<number, SVGRectElement>();
   private labelEls = new Map<number, SVGTextElement>();
+  private letterEls = new Map<number, SVGTextElement>();
+  /** Computer-keyboard letter for each key it plays. */
+  private letters = new Map<number, string>();
   private octaveEls = new Map<number, SVGTextElement>();
   private windowBar: SVGRectElement | null = null;
   private pointerKey: number | null = null;
+  /** Keys lit up because the app is playing them, with the timer that turns each off. */
+  private playing = new Map<number, number>();
+  private flashLabels = new Map<number, string>();
 
   private held: readonly number[] = [];
   private marks = new Map<number, KeyMark>();
@@ -82,6 +88,32 @@ export class Keyboard {
     this.refresh();
   }
 
+  /** Shows which computer key plays each piano key (e.g. "A" on middle C). */
+  setLetters(letters: Map<number, string>): void {
+    this.letters = letters;
+    for (const [midi, el] of this.letterEls) el.textContent = letters.get(midi) ?? '';
+  }
+
+  /** Lights up keys while the app plays them, optionally labelled (e.g. "D\nR"). */
+  flash(notes: readonly number[], ms: number, labels?: Map<number, string>): void {
+    for (const midi of notes) {
+      clearTimeout(this.playing.get(midi));
+      this.keys.get(midi)?.classList.add('playing');
+      const label = labels?.get(midi);
+      if (label) this.flashLabels.set(midi, label);
+      this.playing.set(
+        midi,
+        window.setTimeout(() => {
+          this.playing.delete(midi);
+          this.flashLabels.delete(midi);
+          this.keys.get(midi)?.classList.remove('playing');
+          this.refreshLabels();
+        }, ms),
+      );
+    }
+    this.refreshLabels();
+  }
+
   setConstraint(c: NoteConstraint): void {
     this.constraint = c;
     this.refresh();
@@ -96,6 +128,7 @@ export class Keyboard {
   private build(): void {
     this.keys.clear();
     this.labelEls.clear();
+    this.letterEls.clear();
     this.octaveEls.clear();
     const whiteCount = Array.from({ length: this.high - this.low + 1 }, (_, i) => this.low + i).filter(
       (m) => !isBlackKey(m),
@@ -117,6 +150,7 @@ export class Keyboard {
     const blacks = s('g');
     const octaveLabels = s('g', { class: 'octave-labels' });
     const labels = s('g', { class: 'key-labels' });
+    const letters = s('g', { class: 'key-letters' });
 
     for (let midi = this.low; midi <= this.high; midi++) {
       const black = isBlackKey(midi);
@@ -144,12 +178,32 @@ export class Keyboard {
         y: TOP + (black ? BLACK_H : WHITE_H) - 8,
       });
       labels.appendChild(text);
+      const letter = s('text', {
+        class: black ? 'on-black' : 'on-white',
+        x: x + (black ? BLACK_W : WHITE_W) / 2,
+        y: TOP + (black ? 13 : BLACK_H + 14),
+      });
+      letters.appendChild(letter);
+      this.letterEls.set(midi, letter);
       this.labelEls.set(midi, text);
     }
 
     this.windowBar = s('rect', { class: 'window-bar', y: 2, height: 8, rx: 3 });
-    this.el.replaceChildren(defs, this.windowBar, whites, blacks, octaveLabels, labels);
+    this.el.replaceChildren(defs, this.windowBar, whites, blacks, octaveLabels, letters, labels);
+    this.setLetters(this.letters);
     this.refresh();
+  }
+
+  private refreshLabels(): void {
+    const labels = new Map([...this.labels, ...this.flashLabels]);
+    for (const [midi, text] of this.labelEls) {
+      const [name = '', sub = ''] = (labels.get(midi) ?? '').split('\n');
+      text.replaceChildren(
+        ...(sub ? [s('tspan', { class: 'sub', x: text.getAttribute('x'), dy: -14 }, sub)] : []),
+        s('tspan', { x: text.getAttribute('x'), dy: sub ? 14 : 0 }, name),
+      );
+    }
+    for (const [midi, label] of this.octaveEls) label.style.display = labels.has(midi) ? 'none' : '';
   }
 
   private refresh(): void {
@@ -160,14 +214,7 @@ export class Keyboard {
       rect.classList.toggle('off', !isNoteAllowed(midi, this.constraint));
       for (const m of ['ok', 'bad', 'target'] as const) rect.classList.toggle(`mark-${m}`, mark === m);
     }
-    for (const [midi, text] of this.labelEls) {
-      const [name = '', sub = ''] = (this.labels.get(midi) ?? '').split('\n');
-      text.replaceChildren(
-        ...(sub ? [s('tspan', { class: 'sub', x: text.getAttribute('x'), dy: -14 }, sub)] : []),
-        s('tspan', { x: text.getAttribute('x'), dy: sub ? 14 : 0 }, name),
-      );
-    }
-    for (const [midi, label] of this.octaveEls) label.style.display = this.labels.has(midi) ? 'none' : '';
+    this.refreshLabels();
 
     const w = this.constraint.window;
     if (this.windowBar) {
