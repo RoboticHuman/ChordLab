@@ -1,8 +1,16 @@
 import { isTyping } from '../input/computerKeys';
-import { type Settings, type TrainerSettings, getConstraint, getKey } from '../state';
-import { type Chord, type ChordGroup, INVERSION_NAMES, QUALITIES, bestRootSpelling, chordSymbol, chordTones } from '../theory/chords';
-import { keyName, romanNumeral, scalePcSet, spellInKey } from '../theory/keys';
-import { mod12, noteName, pcOf, pcSet, pcSetIsSubset } from '../theory/notes';
+import { type Settings, type TrainerSettings, getConstraint, getKey, keyChange, randomSignature } from '../state';
+import {
+  type Chord,
+  type ChordGroup,
+  INVERSION_NAMES,
+  QUALITIES,
+  bestRootSpelling,
+  chordSymbol,
+  chordTones,
+} from '../theory/chords';
+import { keyName, romanNumeral, scaleNotes, scalePcSet } from '../theory/keys';
+import { mod12, noteName, pcOf, pcSet, pcSetHas, pcSetIsSubset } from '../theory/notes';
 import { type Target, checkTarget, fullTarget, requiredPcs } from '../theory/target';
 import { voiceLeading, voicings } from '../theory/voicing';
 import { h, render } from '../ui/dom';
@@ -57,7 +65,9 @@ function buildPool(s: Settings): Item[] {
     for (let pc = 0; pc < 12; pc++) {
       const pcs = quality.tones.map((tone) => mod12(pc + tone.semitones));
       if (t.roots === 'key' && !pcSetIsSubset(pcSet(pcs), scale)) continue;
-      const chord = { root: t.roots === 'key' ? spellInKey(pc, key) : bestRootSpelling(pc, quality), quality };
+      // Roots in the key are spelled as the key spells them; others as the chord reads most simply (C♯m, D♭).
+      const diatonic = scaleNotes(key).find((n) => pcOf(n) === pc);
+      const chord = { root: diatonic ?? bestRootSpelling(pc, quality), quality };
       const inversions =
         t.inversions === 'any'
           ? [null]
@@ -100,6 +110,8 @@ export class TrainerMode implements Mode {
   private revealed: number[] = [];
   private lastAnswer: number[] = [];
   private releaseTimer = 0;
+  /** Set while next() changes the Key, so the settings change isn't treated as the user's. */
+  private changingKey = false;
   private badTimer = 0;
   private session = { correct: 0, misses: 0, streak: 0, best: 0, totalMs: 0 };
   private stats = loadStats();
@@ -192,6 +204,7 @@ export class TrainerMode implements Mode {
   }
 
   private onSettings(): void {
+    if (this.changingKey) return; // next() is moving the key itself
     const currentId = this.item?.id;
     this.pool = buildPool(this.settings);
     this.renderOptions();
@@ -201,15 +214,27 @@ export class TrainerMode implements Mode {
       this.renderPrompt();
       this.evaluate(this.app.input.held);
     } else if (!same) {
-      this.next();
+      this.next(false);
     }
     this.renderStats();
   }
 
   // --- Flow ---
 
-  private next(): void {
+  /** Moves the Key to a random new one (and the allowed notes with it, if they follow the key). */
+  private moveKey(): void {
+    const s = this.settings;
+    this.changingKey = true;
+    this.app.settings.update(keyChange(s, randomSignature(s.keySig, s.keyMode), s.keyMode, s.allowedFollowKey));
+    this.changingKey = false;
+    this.pool = buildPool(this.settings);
+    this.renderOptions();
+  }
+
+  /** The next chord. `moveKey`: also move to a new key, if "Change key after each chord" is on. */
+  private next(moveKey = true): void {
     clearTimeout(this.releaseTimer);
+    if (moveKey && this.item && this.settings.trainer.changeKey) this.moveKey();
     this.solved = false;
     this.attempted = false;
     this.missed = false;
@@ -399,11 +424,18 @@ export class TrainerMode implements Mode {
         ? 'any inversion'
         : INVERSION_NAMES[inversion] + (inversion > 0 ? ` (${noteName(chordTones(chord)[inversion])} in the bass)` : '');
     this.descEl.textContent = `${noteName(chord.root)} ${chord.quality.name} · ${position}`;
+    // The chord's role in the current key (whose signature is on the staff), or plainly that it isn't in it.
     const key = getKey(this.settings);
-    this.numeralEl.textContent =
-      this.settings.trainer.roots === 'key'
-        ? `${romanNumeral(pcOf(chord.root), chord.quality, key)} in ${keyName(key)}`
-        : '';
+    const scale = scalePcSet(key);
+    const outside = chordTones(chord).filter((n) => !pcSetHas(scale, pcOf(n))).map(noteName);
+    const numeral = romanNumeral(pcOf(chord.root), chord.quality, key);
+    const uses = `uses ${outside.join(', ')}`;
+    this.numeralEl.classList.toggle('outside', outside.length > 0);
+    this.numeralEl.textContent = !outside.length
+      ? `${numeral} in ${keyName(key)}`
+      : numeral.includes('/') // a secondary dominant still has a role in the key
+        ? `${numeral} in ${keyName(key)} · ${uses}`
+        : `Not in ${keyName(key)} · ${uses}`;
   }
 
   private renderStats(): void {
@@ -460,6 +492,13 @@ export class TrainerMode implements Mode {
         h('input', { type: 'radio', name, checked: value === current, onchange: () => onPick(value) }),
         label,
       );
+    const check = (checked: boolean, label: string, onToggle: (on: boolean) => void) =>
+      h(
+        'label',
+        { class: 'check' },
+        h('input', { type: 'checkbox', checked, onchange: (e: Event) => onToggle((e.target as HTMLInputElement).checked) }),
+        label,
+      );
     const toggleQuality = (id: string, on: boolean) =>
       this.updateTrainer({ qualities: on ? [...t.qualities, id] : t.qualities.filter((q) => q !== id) });
 
@@ -492,9 +531,14 @@ export class TrainerMode implements Mode {
       h(
         'div',
         { class: 'option-group' },
-        h('h4', {}, 'Roots'),
-        radio('roots', 'all', t.roots, 'All 12 roots', (roots) => this.updateTrainer({ roots })),
-        radio('roots', 'key', t.roots, `Only chords in ${keyName(key)}`, (roots) => this.updateTrainer({ roots })),
+        h('h4', {}, 'Chords'),
+        radio('roots', 'key', t.roots, `In the key (${keyName(key)})`, (roots) => this.updateTrainer({ roots })),
+        radio('roots', 'all', t.roots, `Any root (also chords outside ${keyName(key)})`, (roots) => this.updateTrainer({ roots })),
+        h('h4', { class: 'spaced' }, 'Key'),
+        check(t.changeKey, 'Change key after each chord', (changeKey) => this.updateTrainer({ changeKey })),
+        check(this.settings.allowedFollowKey, 'Allowed notes follow the key', (allowedFollowKey) =>
+          this.app.settings.update({ allowedFollowKey }),
+        ),
       ),
       h(
         'div',

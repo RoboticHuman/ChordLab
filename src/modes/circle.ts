@@ -101,7 +101,7 @@ export class CircleMode implements Mode {
   );
   private moveAllowedEl = h('input', {
     type: 'checkbox',
-    onchange: () => this.app.settings.update({ circleMovesAllowed: this.moveAllowedEl.checked }),
+    onchange: () => this.app.settings.update({ allowedFollowKey: this.moveAllowedEl.checked }),
   });
   private lightNextEl = h('input', {
     type: 'checkbox',
@@ -230,7 +230,7 @@ export class CircleMode implements Mode {
   private syncOptions(): void {
     const s = this.settings;
     this.directionSelect.value = s.circleDirection;
-    this.moveAllowedEl.checked = s.circleMovesAllowed;
+    this.moveAllowedEl.checked = s.allowedFollowKey;
     this.lightNextEl.checked = s.lightNext;
   }
 
@@ -322,7 +322,7 @@ export class CircleMode implements Mode {
     const message = `✓ ${keyName(key)} done in ${seconds(ms)}. Now ${keyName(keyFromSignature(next, s.keyMode))}.`;
     this.advancingTo = `${next}:${s.keyMode}`;
     this.app.settings.update({
-      ...keyChange(s, next, s.keyMode, s.circleMovesAllowed),
+      ...keyChange(s, next, s.keyMode, s.allowedFollowKey),
       startFrom: nextStart(this.baseTargets, s),
     });
     if (!this.problem) this.setFeedback('ok', message);
@@ -444,7 +444,7 @@ export class CircleMode implements Mode {
     const remaining = this.runner ? this.runner.targets.slice(this.runner.index) : [];
     this.problem = playabilityProblem(remaining, playableRange(s), s.allowed, getKey(s));
     const fix =
-      s.allowedPreset !== 'all' && !s.circleMovesAllowed
+      s.allowedPreset !== 'all' && !s.allowedFollowKey
         ? 'Tick “Move the allowed notes with the key”, change the limits in the sidebar, or skip it.'
         : 'Change the allowed notes or the key window in the sidebar, or skip it.';
     this.warningEl.textContent = error ?? (this.problem ? `${this.problem}, so it can’t be played here. ${fix}` : '');

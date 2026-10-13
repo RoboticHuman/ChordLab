@@ -246,6 +246,9 @@ main.no-settings .settings {
   font-weight: 500;
   padding: 16px 0;
 }
+.chord-numeral.outside {
+  color: var(--target);
+}
 .chord-numeral {
   color: var(--accent);
   font-size: 18px;
@@ -398,6 +401,9 @@ details summary {
   margin: 0 0 6px;
   font-size: 13px;
   color: var(--muted);
+}
+.option-group h4.spaced {
+  margin-top: 10px;
 }
 .quality-row {
   display: flex;
@@ -798,11 +804,19 @@ input.custom-progression {
   align-items: center;
   justify-content: center;
   gap: 16px;
-  flex-wrap: wrap;
 }
 .prompt-main {
   flex: 1;
-  min-width: 220px;
+  min-width: 200px;
+}
+/* The staff shrinks to sit beside the chord name, even with a long key signature. */
+.prompt-sheet {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.prompt-sheet .sheet svg {
+  max-width: 100%;
+  height: auto;
 }
 
 /* --- Keyboard --- */

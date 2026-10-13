@@ -14,6 +14,8 @@ export interface TrainerSettings {
   inversions: 'any' | 'root' | 'ask';
   /** Accept 7th and 9th chords without their perfect 5th. */
   allowNo5: boolean;
+  /** Move the Key to a new, random key after each chord. */
+  changeKey: boolean;
 }
 
 export interface Settings {
@@ -44,8 +46,8 @@ export interface Settings {
   customMode: KeyMode;
   /** Circle mode: 'fourths' goes C → F → B♭ (anticlockwise), 'fifths' goes C → G → D. */
   circleDirection: 'fourths' | 'fifths';
-  /** Circle mode: move the allowed notes along with the key. */
-  circleMovesAllowed: boolean;
+  /** When the circle or the trainer changes the Key, move the allowed notes along with it. */
+  allowedFollowKey: boolean;
   voiceStyle: VoicingStyle;
   /** Voice-leading mode shows the sheet music or the voice-lines graph. */
   voiceView: 'sheet' | 'lines';
@@ -86,15 +88,16 @@ export const DEFAULT_SETTINGS: Settings = {
   pedalHolds: false,
   trainer: {
     qualities: ['maj', 'min'],
-    roots: 'all',
+    roots: 'key',
     inversions: 'any',
     allowNo5: false,
+    changeKey: false,
   },
   progressionId: 'ii-V-I',
   customProgression: 'Imaj7 vi7 ii7 V7',
   customMode: 'major',
   circleDirection: 'fourths',
-  circleMovesAllowed: true,
+  allowedFollowKey: true,
   voiceStyle: 'full',
   voiceView: 'sheet',
   lightNext: false,
@@ -146,6 +149,13 @@ export function wrapSignature(sig: number): number {
   while (s > 6) s -= 12;
   while (s < -6) s += 12;
   return s;
+}
+
+/** A different key of the same mode, picked at random (never the same tonic under another name). */
+export function randomSignature(current: number, mode: KeyMode): number {
+  const tonicPc = (sig: number) => pcOf(keyFromSignature(sig, mode).tonic);
+  const options = [-6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6].filter((sig) => tonicPc(sig) !== tonicPc(current));
+  return options[Math.floor(Math.random() * options.length)];
 }
 
 /** The signature of the same tonic in another mode: C major (0) ↔ C minor (-3). */

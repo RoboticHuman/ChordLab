@@ -1,6 +1,6 @@
 import { RANGES, type Settings, type Store, allowedFor } from '../state';
 import { PC_PRESETS } from '../theory/constraint';
-import { CIRCLE_SIGNATURES, keyFromSignature, keyName, keySignature } from '../theory/keys';
+import { CIRCLE_SIGNATURES, keyFromSignature, keyName, keySignature, spellInKey } from '../theory/keys';
 import { isBlackKey, midiName, noteName, pcOf, pcSetHas, spellPc } from '../theory/notes';
 import { h } from './dom';
 
@@ -147,7 +147,11 @@ export function settingsPanel(store: Store<Settings>, keyboardHint?: Node): HTML
       {},
       h('h3', {}, 'Key'),
       keySelect,
-      h('p', { class: 'muted' }, 'Used to spell notes and name chords by scale degree (ii, V7, …).'),
+      h(
+        'p',
+        { class: 'muted' },
+        'The key you are in: its signature is on the staff, notes are spelled for it, and chords are named by scale degree (ii, V7…). The circle mode and the trainer can move it for you.',
+      ),
     ),
     h(
       'section',
@@ -189,7 +193,12 @@ export function settingsPanel(store: Store<Settings>, keyboardHint?: Node): HTML
     presetSelect.value = s.allowedPreset;
     tonicSelect.value = String(s.allowedTonic);
     tonicSelect.disabled = s.allowedPreset === 'all' || s.allowedPreset === 'custom';
-    pcButtons.forEach((b, pc) => b.classList.toggle('on', pcSetHas(s.allowed, pc)));
+    // Note names follow the current key (F♯ major shows E♯, not F).
+    const key = keyFromSignature(s.keySig, s.keyMode);
+    pcButtons.forEach((b, pc) => {
+      b.textContent = noteName(spellInKey(pc, key));
+      b.classList.toggle('on', pcSetHas(s.allowed, pc));
+    });
     windowToggle.checked = s.windowOn;
     windowControls.classList.toggle('inactive', !s.windowOn);
     windowLowLabel.textContent = `from ${midiName(s.windowLow)}`;

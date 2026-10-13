@@ -41,8 +41,11 @@ far your notes moved in total and how many stayed put, plus a breakdown of how e
 **Chord trainer.** You get a chord name and play it. Wrong notes turn red, with an explanation of
 what's wrong. After each correct answer, it shows how far you moved from your previous chord
 compared with the smoothest possible move. Chords you miss or play slowly come up more often (saved
-between sessions). Options cover chord types, all 12 roots vs. only chords in the key, inversion
-practice, and accepting 7th chords without the 5th.
+between sessions). Options cover chord types, chords in the key vs. any root, inversion practice,
+and accepting 7th chords without the 5th. Chords outside the key are marked as such ("Not in
+C major · uses F♯"). Everything is written in the sidebar's Key (its signature
+on the staff, its Roman numerals); *Change key after each chord* moves that Key to a new one after
+every chord, for practice reading all the key signatures.
 
 **Circle of fifths.** An interactive circle (majors outside, relative minors inside) that shades the
 chords of the current key and draws the progression as a path. Play the progression, and the app
@@ -92,7 +95,7 @@ Both kinds of restriction live in the sidebar and apply to every mode:
 The trainer only asks for chords that can actually be played under the current restrictions. In the
 progression modes, the app says which chord is ruled out and why (e.g. "Gm7 needs B♭, which isn't
 in the allowed notes"), and *Skip chord* moves past it. The circle mode can move the allowed notes
-along with each key change.
+along with each key change (*Allowed notes follow the key*, shared with the trainer).
 
 ## Code layout
 

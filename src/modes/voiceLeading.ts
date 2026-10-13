@@ -233,7 +233,7 @@ export class VoiceLeadingMode implements Mode {
     const s = this.settings;
     const next = wrapSignature(s.keySig + (s.circleDirection === 'fifths' ? 1 : -1));
     this.app.settings.update({
-      ...keyChange(s, next, s.keyMode, s.circleMovesAllowed),
+      ...keyChange(s, next, s.keyMode, s.allowedFollowKey),
       startFrom: nextStart(this.baseTargets, s),
     });
   }
